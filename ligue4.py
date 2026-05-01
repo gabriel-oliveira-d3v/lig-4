@@ -1,5 +1,6 @@
 import os
 import time
+import random
 
 # -------------------------- Ranking Functions --------------------------
 SCORE_FILE = "ranking.txt"
@@ -80,6 +81,13 @@ def verificar_vitoria(tabuleiro, linha, coluna, simbolo):
             return True
     return False
 
+def get_drop_row(tabuleiro, coluna):
+    """Retorna a linha onde a peça cairia na coluna, ou None se cheia."""
+    for linha in range(5, -1, -1):
+        if tabuleiro[linha][coluna] == ' ':
+            return linha
+    return None
+
 def animar_ficha(tabuleiro, coluna, simbolo):
     linha_destino = -1
     for l in range(5, -1, -1):
@@ -102,8 +110,49 @@ def animar_ficha(tabuleiro, coluna, simbolo):
             tabuleiro[linha_atual][coluna] = ' '
     return linha_destino
 
+# -------------------------- AI do Bot --------------------------
+def bot_move_ganha(tabuleiro, coluna, simbolo):
+    """Testa se colocar `simbolo` na `coluna` resulta em vitória."""
+    linha = get_drop_row(tabuleiro, coluna)
+    if linha is None:
+        return False
+    # Simula temporariamente
+    tabuleiro[linha][coluna] = simbolo
+    venceu = verificar_vitoria(tabuleiro, linha, coluna, simbolo)
+    tabuleiro[linha][coluna] = ' '
+    return venceu
+
+def get_bot_move(tabuleiro, bot_simbolo, humano_simbolo):
+    """Escolhe a melhor jogada para o bot:
+       1. Se pode vencer imediatamente, joga.
+       2. Se pode bloquear vitória do humano, joga.
+       3. Caso contrário, escolhe uma coluna válida aleatória (com leve preferência ao centro).
+    """
+    valid_cols = [c for c in range(7) if coluna_valida(tabuleiro, c)]
+    if not valid_cols:
+        return None
+
+    # 1. Vitória imediata do bot
+    for col in valid_cols:
+        if bot_move_ganha(tabuleiro, col, bot_simbolo):
+            return col
+
+    # 2. Bloquear vitória do humano
+    for col in valid_cols:
+        if bot_move_ganha(tabuleiro, col, humano_simbolo):
+            return col
+
+    # 3. Jogada aleatória (centro tem mais chances de construir combos)
+    #    Atribui pesos: colunas 3,2,4,1,5,0,6 (centro > laterais)
+    pesos = [1, 2, 3, 4, 3, 2, 1]  # col 0..6
+    opcoes = []
+    for col in valid_cols:
+        opcoes.extend([col] * pesos[col])
+    return random.choice(opcoes) if opcoes else random.choice(valid_cols)
+
+# -------------------------- Modo de Jogo: 2 Jogadores --------------------------
 def executar_jogo(short1, short2, simbolos):
-    """Runs one game. short1, short2 are short names (e.g., 'A', 'B')."""
+    """Runs one game for two human players."""
     tabuleiro = criar_tabuleiro()
     jogador_atual = 0  # 0 -> player1, 1 -> player2
 
@@ -111,7 +160,6 @@ def executar_jogo(short1, short2, simbolos):
         os.system('cls' if os.name == 'nt' else 'clear')
         print("=" * 40)
         print("      LIGUE-4 (CONNECT FOUR)")
-        # Mostra os apelidos curtos na tela de jogo
         print(f"  {short1}: ●          {short2}: ○")
         print("=" * 40)
         exibir_tabuleiro(tabuleiro)
@@ -135,7 +183,7 @@ def executar_jogo(short1, short2, simbolos):
             print(f"\n{'=' * 40}")
             print(f"🎉 PARABÉNS! {nome_curto} VENCEU! 🎉")
             print(f"{'=' * 40}")
-            update_score(nome_curto)   # salva ranking com apelido curto
+            update_score(nome_curto)
             input("\nPressione ENTER para continuar...")
             break
 
@@ -146,22 +194,81 @@ def executar_jogo(short1, short2, simbolos):
 
         jogador_atual = 1 - jogador_atual
 
-# -------------------------- Main Menu --------------------------
+# -------------------------- Modo de Jogo: Humano vs Bot --------------------------
+def executar_jogo_bot(humano_apelido, humano_simbolo, bot_simbolo):
+    """Runs one game: Human vs Bot. Bot's wins are NOT added to ranking."""
+    tabuleiro = criar_tabuleiro()
+    jogador_atual = 0  # 0 = humano, 1 = bot
+    nome_bot = "🤖 BOT"
+
+    while True:
+        os.system('cls' if os.name == 'nt' else 'clear')
+        print("=" * 40)
+        print("      LIGUE-4 (CONNECT FOUR)")
+        print(f"  {humano_apelido}: ●          {nome_bot}: ○")
+        print("=" * 40)
+        exibir_tabuleiro(tabuleiro)
+
+        if jogador_atual == 0:  # Humano
+            print(f"Vez de {humano_apelido} ({humano_simbolo})")
+            while True:
+                try:
+                    coluna = int(input("Coluna (1 a 7): ")) - 1
+                    if coluna_valida(tabuleiro, coluna):
+                        break
+                    print("⚠️ Coluna inválida ou cheia!")
+                except ValueError:
+                    print("⚠️ Digite um número entre 1 e 7.")
+            linha = animar_ficha(tabuleiro, coluna, humano_simbolo)
+
+            if verificar_vitoria(tabuleiro, linha, coluna, humano_simbolo):
+                print(f"\n{'=' * 40}")
+                print(f"🎉 PARABÉNS! {humano_apelido} VENCEU! 🎉")
+                print(f"{'=' * 40}")
+                update_score(humano_apelido)   # só humano ganha pontos
+                input("\nPressione ENTER para continuar...")
+                break
+        else:  # Bot
+            print(f"🤖 {nome_bot} está pensando...")
+            time.sleep(0.8)  # pausa para dar sensação de "pensamento"
+            coluna = get_bot_move(tabuleiro, bot_simbolo, humano_simbolo)
+            if coluna is None:
+                # não deveria acontecer se houver jogadas válidas
+                print("⚠️ Bot não encontrou jogada!")
+                break
+            linha = animar_ficha(tabuleiro, coluna, bot_simbolo)
+
+            if verificar_vitoria(tabuleiro, linha, coluna, bot_simbolo):
+                print(f"\n{'=' * 40}")
+                print(f"💀 {nome_bot} VENCEU! Que pena... 💀")
+                print(f"{'=' * 40}")
+                print("(O bot NÃO entra no ranking.)")
+                input("\nPressione ENTER para continuar...")
+                break
+
+        if tabuleiro_cheio(tabuleiro):
+            print("\n🤝 EMPATE! Ninguém ganha pontos.")
+            input("\nPressione ENTER para continuar...")
+            break
+
+        jogador_atual = 1 - jogador_atual
+
+# -------------------------- Menu Principal --------------------------
 def main():
     while True:
         os.system('cls' if os.name == 'nt' else 'clear')
         print("=" * 40)
         print("       CONNECT FOUR - LIGUE-4")
         print("=" * 40)
-        print("  1. Jogar")
-        print("  2. Ver Ranking")
-        print("  3. Sair")
+        print("  1. Jogar (2 jogadores)")
+        print("  2. Jogar contra o Bot")
+        print("  3. Ver Ranking")
+        print("  4. Sair")
         print("=" * 40)
         opcao = input("Escolha: ")
 
         if opcao == "1":
-            print("\n--- NOVO JOGO (estilo fliperama) ---")
-            # Pede apelidos curtos (máx 3 caracteres)
+            print("\n--- NOVO JOGO (2 JOGADORES) ---")
             short1 = input("Apelido Jogador 1 (●) [max 3 letras]: ").strip().upper()
             while len(short1) == 0 or len(short1) > 3:
                 short1 = input("Máximo 3 caracteres. Digite novamente: ").strip().upper()
@@ -173,10 +280,20 @@ def main():
             executar_jogo(short1, short2, simbolos)
 
         elif opcao == "2":
+            print("\n--- MODO CONTRA O BOT ---")
+            humano = input("Seu apelido (max 3 letras): ").strip().upper()
+            while len(humano) == 0 or len(humano) > 3:
+                humano = input("Máximo 3 caracteres. Digite novamente: ").strip().upper()
+            print("\nVocê joga com ● . O bot joga com ○ .")
+            input("Pressione ENTER para iniciar...")
+            # Humano sempre começa com ●, bot com ○
+            executar_jogo_bot(humano, '●', '○')
+
+        elif opcao == "3":
             display_ranking()
             input("Pressione ENTER para voltar...")
 
-        elif opcao == "3":
+        elif opcao == "4":
             print("Até logo!")
             break
         else:
